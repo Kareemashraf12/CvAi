@@ -1,0 +1,6 @@
+@CvAi.API_HostAddress = http://localhost:5028
+
+GET {{CvAi.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
