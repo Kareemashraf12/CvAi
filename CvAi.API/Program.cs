@@ -12,6 +12,16 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+
+builder.Configuration
+    .AddJsonFile(
+        Path.Combine(builder.Environment.ContentRootPath, "Env", "Config.json"),
+        optional: true)
+    .AddEnvironmentVariables("CvAi_");
+
+
+
+
 // ---------------------------------------------------------------
 // JWT Settings
 // ---------------------------------------------------------------
@@ -81,6 +91,12 @@ if (authenticationSettings.MaxActiveDevices <= 0)
         "MaxActiveDevices must be greater than zero.");
 }
 
+if (authenticationSettings.RefreshTokenReuseGraceSeconds < 0)
+{
+    throw new InvalidOperationException(
+        "RefreshTokenReuseGraceSeconds must not be negative.");
+}
+
 builder.Services.AddSingleton(authenticationSettings);
 
 // ---------------------------------------------------------------
@@ -130,6 +146,8 @@ builder.Services.AddProblemDetails();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddOpenApi();
+
 
 // ---------------------------------------------------------------
 // S3 Storage Configuration
@@ -153,6 +171,7 @@ builder.Services.AddIdentitySeeding(builder.Configuration);
 builder.Services.AddJwtServices();
 builder.Services.AddEmailServices();
 builder.Services.AddRegistrationServices();
+builder.Services.AddPasswordResetServices();
 
 // ---------------------------------------------------------------
 // OTP / Pending Registration Settings
@@ -199,6 +218,24 @@ if (pendingRegistrationSettings.RegistrationExpirationHours <= 0 ||
 }
 
 builder.Services.AddSingleton(pendingRegistrationSettings);
+
+// ---------------------------------------------------------------
+// Password Reset Settings
+// ---------------------------------------------------------------
+var passwordResetSettings = builder.Configuration
+    .GetSection(PasswordResetSettings.SectionName)
+    .Get<PasswordResetSettings>()
+    ?? new PasswordResetSettings();
+
+if (passwordResetSettings.CodeExpirationMinutes <= 0 ||
+    passwordResetSettings.ResendCooldownSeconds < 0 ||
+    passwordResetSettings.MaxAttempts <= 0)
+{
+    throw new InvalidOperationException(
+        "PasswordReset settings are invalid.");
+}
+
+builder.Services.AddSingleton(passwordResetSettings);
 
 // ---------------------------------------------------------------
 // Email Settings

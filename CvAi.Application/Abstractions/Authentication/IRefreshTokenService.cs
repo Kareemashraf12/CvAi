@@ -8,7 +8,13 @@ public interface IRefreshTokenService
         CreateRefreshTokenDto request,
         CancellationToken cancellationToken = default);
 
-    Task<RefreshTokenValidationDto?> ValidateAsync(
+
+    Task<RefreshTokenRotationResultDto> RotateAsync(
+        string token,
+        CancellationToken cancellationToken = default);
+
+
+    Task<bool> RevokeByTokenAsync(
         string token,
         CancellationToken cancellationToken = default);
 

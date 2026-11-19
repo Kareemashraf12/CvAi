@@ -25,6 +25,7 @@ public sealed class JwtTokenService : IJwtTokenService
 
     public async Task<AccessTokenResultDto> GenerateAccessTokenAsync(
         string userId,
+        string? deviceId,
         CancellationToken cancellationToken = default)
     {
         var user = await _userManager.FindByIdAsync(userId);
@@ -47,7 +48,10 @@ public sealed class JwtTokenService : IJwtTokenService
             new(ClaimTypes.NameIdentifier, user.Id),
             new(ClaimTypes.Name, user.FullName),
             new(ClaimTypes.Email, user.Email ?? string.Empty)
+            
         };
+        if (!string.IsNullOrWhiteSpace(deviceId))
+                claims.Add(new Claim("device_id", deviceId));
 
         claims.AddRange(roles.Select(role =>
             new Claim(ClaimTypes.Role, role)));

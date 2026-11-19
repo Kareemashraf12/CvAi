@@ -1,5 +1,8 @@
-﻿using CvAi.Application.Abstractions.Authentication;
+﻿using System.Security.Claims;
+using CvAi.Application.Abstractions.Authentication;
+using CvAi.Application.Common.Models;
 using CvAi.Application.DTOs.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CvAi.API.Controllers;
@@ -9,16 +12,17 @@ namespace CvAi.API.Controllers;
 public sealed class AuthenticationController : ControllerBase
 {
     private readonly IAuthenticationService _authenticationService;
+    private readonly IPasswordResetService _passwordResetService;
 
     public AuthenticationController(
-        IAuthenticationService authenticationService)
+        IAuthenticationService authenticationService,
+        IPasswordResetService passwordResetService)
     {
         _authenticationService = authenticationService;
+        _passwordResetService = passwordResetService;
     }
 
-    /// <summary>
-    /// Register a new user and send an email verification OTP.
-    /// </summary>
+
     [HttpPost("register")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -35,9 +39,7 @@ public sealed class AuthenticationController : ControllerBase
             : BadRequest(result);
     }
 
-    /// <summary>
-    /// Login using email and password.
-    /// </summary>
+
     [HttpPost("login")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -54,9 +56,7 @@ public sealed class AuthenticationController : ControllerBase
             : Unauthorized(result);
     }
 
-    /// <summary>
-    /// Generate a new access token using an existing refresh token.
-    /// </summary>
+
     [HttpPost("refresh-token")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -73,9 +73,111 @@ public sealed class AuthenticationController : ControllerBase
             : Unauthorized(result);
     }
 
-    /// <summary>
-    /// Send an OTP to the email associated with a pending registration.
-    /// </summary>
+  
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Logout(
+        [FromBody] LogoutRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _authenticationService.LogoutAsync(
+            request,
+            cancellationToken);
+
+        return result.Success
+            ? Ok(result)
+            : BadRequest(result);
+    }
+
+
+    [HttpPost("logout-all")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> LogoutAll(
+        CancellationToken cancellationToken)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized(ApiResponse.Fail(
+                "Authenticated user ID is required."));
+        }
+
+        var result = await _authenticationService.RevokeAllSessionsAsync(
+            userId,
+            cancellationToken);
+
+        return result.Success
+            ? Ok(result)
+            : Unauthorized(result);
+    }
+
+
+    [HttpDelete("account")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> DeleteAccount(
+        [FromBody] DeleteAccountRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized(ApiResponse.Fail(
+                "Authenticated user ID is required."));
+        }
+
+        var result = await _authenticationService.DeleteAccountAsync(
+            userId,
+            request,
+            cancellationToken);
+
+        return result.Success
+            ? Ok(result)
+            : BadRequest(result);
+    }
+
+
+    [HttpPost("forgot-password")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ForgotPassword(
+        [FromBody] ForgotPasswordRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _passwordResetService.RequestResetAsync(
+            request,
+            cancellationToken);
+
+        return result.Success
+            ? Ok(result)
+            : BadRequest(result);
+    }
+
+
+    [HttpPost("reset-password")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword(
+        [FromBody] ResetPasswordRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _passwordResetService.ResetPasswordAsync(
+            request,
+            cancellationToken);
+
+        return result.Success
+            ? Ok(result)
+            : BadRequest(result);
+    }
+
+
     [HttpPost("send-otp")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -92,9 +194,7 @@ public sealed class AuthenticationController : ControllerBase
             : BadRequest(result);
     }
 
-    /// <summary>
-    /// Resend the email verification OTP.
-    /// </summary>
+
     [HttpPost("resend-otp")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -111,9 +211,7 @@ public sealed class AuthenticationController : ControllerBase
             : BadRequest(result);
     }
 
-    /// <summary>
-    /// Verify email using the OTP sent to the user's email.
-    /// </summary>
+  
     [HttpPost("verify-email")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

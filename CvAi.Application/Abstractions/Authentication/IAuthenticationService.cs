@@ -17,6 +17,20 @@ public interface IAuthenticationService
         RefreshTokenRequestDto request,
         CancellationToken cancellationToken = default);
 
+
+    Task<ApiResponse> LogoutAsync(
+        LogoutRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse> RevokeAllSessionsAsync(
+        string userId,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse> DeleteAccountAsync(
+        string userId,
+        DeleteAccountRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ApiResponse<RegisterResponseDto>> SendOtpAsync(
         SendOtpRequestDto request,
         CancellationToken cancellationToken = default);

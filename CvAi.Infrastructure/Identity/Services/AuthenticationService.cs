@@ -1,33 +1,42 @@
 ﻿using CvAi.Application.Abstractions.Authentication;
+using CvAi.Application.Abstractions.Files;
 using CvAi.Application.Common.Models;
 using CvAi.Application.DTOs.Authentication;
 using CvAi.Infrastructure.Identity;
+using CvAi.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CvAi.Infrastructure.Identity.Services;
 
-/// <summary>
-/// Login and token refresh live here. The registration / OTP flow is
-/// delegated to <see cref="IPendingRegistrationService"/> so that the logic
-/// exists in exactly one place.
-/// </summary>
+
 public sealed class AuthenticationService : IAuthenticationService
 {
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IJwtTokenService _jwtTokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly IPendingRegistrationService _pendingRegistrationService;
+    private readonly ApplicationDbContext _context;
+    private readonly IImageService _imageService;
+    private readonly ILogger<AuthenticationService> _logger;
 
     public AuthenticationService(
         UserManager<ApplicationUser> userManager,
         IJwtTokenService jwtTokenService,
         IRefreshTokenService refreshTokenService,
-        IPendingRegistrationService pendingRegistrationService)
+        IPendingRegistrationService pendingRegistrationService,
+        ApplicationDbContext context,
+        IImageService imageService,
+        ILogger<AuthenticationService> logger)
     {
         _userManager = userManager;
         _jwtTokenService = jwtTokenService;
         _refreshTokenService = refreshTokenService;
         _pendingRegistrationService = pendingRegistrationService;
+        _context = context;
+        _imageService = imageService;
+        _logger = logger;
     }
 
     // ---------------------------------------------------------------
@@ -146,6 +155,7 @@ public sealed class AuthenticationService : IAuthenticationService
 
         var accessToken = await _jwtTokenService.GenerateAccessTokenAsync(
             user.Id,
+            request.DeviceId.Trim(),
             cancellationToken);
 
         var roles = await _userManager.GetRolesAsync(user);
@@ -168,7 +178,7 @@ public sealed class AuthenticationService : IAuthenticationService
     }
 
     // ---------------------------------------------------------------
-    // Refresh access token
+    // Refresh access token (with refresh token rotation)
     // ---------------------------------------------------------------
 
     public async Task<ApiResponse<RefreshAccessTokenResponseDto>> RefreshAccessTokenAsync(
@@ -181,51 +191,218 @@ public sealed class AuthenticationService : IAuthenticationService
                 "Refresh token is required.");
         }
 
-        // Validate the refresh token and retrieve its owner.
-        var tokenValidation = await _refreshTokenService.ValidateAsync(
+        var rotation = await _refreshTokenService.RotateAsync(
             request.RefreshToken,
             cancellationToken);
 
-        if (tokenValidation is null)
+        if (rotation.Status == RefreshTokenRotationStatus.Reused ||
+            rotation.Status == RefreshTokenRotationStatus.Invalid)
         {
             return ApiResponse<RefreshAccessTokenResponseDto>.Fail(
                 "Invalid or expired refresh token.");
         }
 
         var user = await _userManager.FindByIdAsync(
-            tokenValidation.UserId);
+            rotation.UserId);
 
         if (user is null)
         {
+            await KillRotatedSessionAsync(rotation, cancellationToken);
+
             return ApiResponse<RefreshAccessTokenResponseDto>.Fail(
                 "User account was not found.");
         }
 
         if (!user.EmailConfirmed)
         {
+            await KillRotatedSessionAsync(rotation, cancellationToken);
+
             return ApiResponse<RefreshAccessTokenResponseDto>.Fail(
                 "Your email address is not verified.");
         }
 
         if (await _userManager.IsLockedOutAsync(user))
         {
+            await KillRotatedSessionAsync(rotation, cancellationToken);
+
             return ApiResponse<RefreshAccessTokenResponseDto>.Fail(
                 "Your account is temporarily locked.");
         }
 
-        // Generate a new access token without rotating the refresh token.
         var accessToken = await _jwtTokenService.GenerateAccessTokenAsync(
             user.Id,
+            rotation.DeviceId,
             cancellationToken);
 
         var response = new RefreshAccessTokenResponseDto
         {
             AccessToken = accessToken.Token,
-            AccessTokenExpiresAtUtc = accessToken.ExpiresAtUtc
+            AccessTokenExpiresAtUtc = accessToken.ExpiresAtUtc,
+            RefreshToken = rotation.NewToken!.Token,
+            RefreshTokenExpiresAtUtc = rotation.NewToken.ExpiresAtUtc
         };
 
         return ApiResponse<RefreshAccessTokenResponseDto>.Ok(
             response,
             "Access token refreshed successfully.");
+    }
+
+
+    private async Task KillRotatedSessionAsync(
+        RefreshTokenRotationResultDto rotation,
+        CancellationToken cancellationToken)
+    {
+        if (rotation.NewToken is not null)
+        {
+            await _refreshTokenService.RevokeByTokenAsync(
+                rotation.NewToken.Token,
+                cancellationToken);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Logout
+    // ---------------------------------------------------------------
+
+    public async Task<ApiResponse> LogoutAsync(
+        LogoutRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken))
+        {
+            return ApiResponse.Fail(
+                "Refresh token is required.");
+        }
+
+        var revoked = await _refreshTokenService.RevokeByTokenAsync(
+            request.RefreshToken,
+            cancellationToken);
+
+        return revoked
+            ? ApiResponse.Ok("Logged out successfully.")
+            : ApiResponse.Fail("Session not found or already ended.");
+    }
+
+    public async Task<ApiResponse> RevokeAllSessionsAsync(
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return ApiResponse.Fail(
+                "User ID is required.");
+        }
+
+        await _refreshTokenService.RevokeAllAsync(
+            userId,
+            cancellationToken);
+
+        return ApiResponse.Ok(
+            "All sessions have been revoked.");
+    }
+
+    // ---------------------------------------------------------------
+    // Delete account
+    // ---------------------------------------------------------------
+
+    public async Task<ApiResponse> DeleteAccountAsync(
+        string userId,
+        DeleteAccountRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return ApiResponse.Fail("User ID is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Password))
+        {
+            return ApiResponse.Fail(
+                "Password is required to delete the account.");
+        }
+
+        var user = await _userManager.FindByIdAsync(userId);
+
+        if (user is null)
+        {
+            return ApiResponse.Fail("User account was not found.");
+        }
+
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            return ApiResponse.Fail(
+                "Your account is temporarily locked. Please try again later.");
+        }
+
+        var passwordValid = await _userManager.CheckPasswordAsync(
+            user,
+            request.Password);
+
+        if (!passwordValid)
+        {
+        
+            await _userManager.AccessFailedAsync(user);
+
+            return ApiResponse.Fail("Incorrect password.");
+        }
+
+        await _userManager.ResetAccessFailedCountAsync(user);
+
+        // If anything below fails, disposing the transaction rolls it back.
+        await using var transaction =
+            await _context.Database.BeginTransactionAsync(cancellationToken);
+
+
+        await _context.RefreshTokens
+            .Where(x => x.UserId == userId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await _context.PasswordResets
+            .Where(x => x.UserId == userId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(user.Email))
+        {
+            var normalizedEmail = _userManager.NormalizeEmail(user.Email);
+
+            await _context.PendingRegistrations
+                .Where(x => x.NormalizedEmail == normalizedEmail)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+
+        var deleteResult = await _userManager.DeleteAsync(user);
+
+        if (!deleteResult.Succeeded)
+        {
+            return ApiResponse.Fail(
+                string.Join(
+                    " ",
+                    deleteResult.Errors.Select(x => x.Description)));
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+   
+        if (!string.IsNullOrWhiteSpace(user.ProfileImageKey))
+        {
+            try
+            {
+                await _imageService.DeleteAsync(
+                    user.ProfileImageKey,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to delete the profile image {ImageKey} of deleted user {UserId}.",
+                    user.ProfileImageKey,
+                    userId);
+            }
+        }
+
+        return ApiResponse.Ok(
+            "Your account has been deleted successfully.");
     }
 }

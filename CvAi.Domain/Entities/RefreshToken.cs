@@ -22,6 +22,9 @@ public sealed class RefreshToken
 
     public DateTime? RevokedAtUtc { get; set; }
 
+
+    public string? ReplacedByTokenHash { get; set; }
+
     public bool IsRevoked => RevokedAtUtc.HasValue;
 
     public bool IsExpired => DateTime.UtcNow >= ExpiresAtUtc;

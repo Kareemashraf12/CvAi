@@ -6,5 +6,6 @@ public interface IJwtTokenService
 {
     Task<AccessTokenResultDto> GenerateAccessTokenAsync(
         string userId,
+        string? deviceId,
         CancellationToken cancellationToken = default);
 }

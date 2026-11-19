@@ -1,0 +1,71 @@
+{
+    "AllowedHosts": "*",
+    "ConnectionStrings": {
+        "CvAiConnection": ""
+    },
+      "S3Storage": {
+    "ServiceUrl": "",
+    "Region": "",
+    "BucketName": "",
+    "AccessKey": "",
+    "SecretKey": "",
+    "ForcePathStyle": false,
+    "UsePublicUrls": false,
+    "PublicBaseUrl": ""
+  },
+  "ImageSettings": {
+    "MaxFileSizeInBytes": 5242880,
+    "AllowedExtensions": [
+      "",
+      "",
+      ".png",
+      ""
+    ],
+    "AllowedContentTypes": [
+      "",
+      "image/png",
+      ""
+    ],
+    "DefaultAvatarUrl": ""
+  },
+  "AdminSeed": {
+    "FullName": "",
+    "Email": "",
+    "Password": ""
+  },
+  "Jwt": {
+    "Issuer": "",
+    "Audience": "",
+    "SecretKey": "",
+    "AccessTokenExpirationMinutes": 12,
+    "RefreshTokenExpirationDays": 30
+  },
+  "Authentication": {
+    "MaxActiveDevices": 5,
+    "RefreshTokenReuseGraceSeconds": 30
+  },
+  "PendingRegistration": {
+    "OtpHashSecret": "",
+    "RegistrationExpirationHours": 24,
+    "OtpLength": 6,
+    "OtpExpirationMinutes": 5,
+    "OtpResendCooldownSeconds": 60,
+    "MaxOtpAttempts": 5,
+    "MaxOtpResendCount": 5
+  },
+  "PasswordReset": {
+    "CodeExpirationMinutes": 15,
+    "ResendCooldownSeconds": 60,
+    "MaxAttempts": 5
+  },
+  "Email": {
+    "Host": "",
+    "Port": 587,
+    "Username": "",
+    "Password": "",
+    "FromEmail": "",
+    "FromName": "",
+    "EnableSsl": true
+  }
+
+}

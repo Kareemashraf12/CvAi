@@ -60,6 +60,17 @@ public static class DependencyInjection
     }
 
     /// <summary>
+    /// Password reset flow: request a reset code and reset the password.
+    /// </summary>
+    public static IServiceCollection AddPasswordResetServices(
+        this IServiceCollection services)
+    {
+        services.AddScoped<IPasswordResetService, PasswordResetService>();
+
+        return services;
+    }
+
+    /// <summary>
     /// Identity seeding (admin user and roles).
     /// </summary>
     public static IServiceCollection AddIdentitySeeding(
